@@ -2146,7 +2146,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
   var allowed = {
     elements: ['a', 'em', 'strong', 'small', 's', 'cite', 'q', 'dfn', 'abbr', 'data', 'time', 'code', 'var', 'samp', 'kbd', 'sub', 'sup', 'i', 'b', 'u', 'mark', 'ruby', 'rt', 'rp', 'bdi', 'bdo', 'span', 'br', 'wbr'],
     attributes: {
-      global: ['title', 'aria-label', 'aria-valuetext', 'aria-moz-hint'],
+      global: ['title', 'aria-label', 'aria-valuetext', 'aria-moz-hint', 'class'],
       a: ['download'],
       area: ['download', 'alt'],
 
@@ -2172,7 +2172,9 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
         var tmpl = element.ownerDocument.createElement('template');
         tmpl.innerHTML = value;
 
-        overlay(element, tmpl.content);
+        if (tmpl.content) {
+          overlay(element, tmpl.content);
+        }
       }
     }
 
@@ -2313,7 +2315,10 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
   }
 
   function getTranslatables(element) {
-    var nodes = Array.from(element.querySelectorAll('[data-l10n-id]'));
+    var nodes = [];
+    if (typeof element.querySelectorAll === 'function') {
+      nodes = Array.from(element.querySelectorAll('[data-l10n-id]'));
+    }
 
     if (typeof element.hasAttribute === 'function' && element.hasAttribute('data-l10n-id')) {
       nodes.push(element);
