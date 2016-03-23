@@ -11,7 +11,10 @@ const allowed = {
     'mark', 'ruby', 'rt', 'rp', 'bdi', 'bdo', 'span', 'br', 'wbr'
   ],
   attributes: {
-    global: [ 'title', 'aria-label', 'aria-valuetext', 'aria-moz-hint' ],
+    global: [
+      'title', 'aria-label', 'aria-valuetext', 'aria-moz-hint',
+      'class'
+    ],
     a: [ 'download' ],
     area: [ 'download', 'alt' ],
     // value is special-cased in isAttrAllowed
@@ -39,7 +42,9 @@ export function overlayElement(element, translation) {
       const tmpl = element.ownerDocument.createElement('template');
       tmpl.innerHTML = value;
       // overlay the node with the DocumentFragment
-      overlay(element, tmpl.content);
+      if (tmpl.content) {
+        overlay(element, tmpl.content);
+      }
     }
   }
 
@@ -192,4 +197,3 @@ function camelCaseToDashed(string) {
     })
     .replace(/^-/, '');
 }
-
