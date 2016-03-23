@@ -304,12 +304,12 @@
     reconnect(view);
   }
 
-  var dom = {
+  var dom = Object.freeze({
     setAttributes: setAttributes,
     getAttributes: getAttributes,
     translateMutations: translateMutations,
     translateFragment: translateFragment
-  };
+  });
 
   window.L20n = {
     dom: dom

@@ -738,9 +738,6 @@
   var KNOWN_MACROS = ['plural'];
   var MAX_PLACEABLE_LENGTH = 2500;
 
-  var FSI = '⁨';
-  var PDI = '⁩';
-
   var resolutionChain = new WeakSet();
 
   function format(ctx, lang, args, entity) {
@@ -800,7 +797,7 @@
       newLocals = _resolveIdentifier[0];
       value = _resolveIdentifier[1];
     } catch (err) {
-      return [{ error: err }, FSI + '{{ ' + id + ' }}' + PDI];
+      return [{ error: err }, '{{ ' + id + ' }}'];
     }
 
     if (typeof value === 'number') {
@@ -812,10 +809,10 @@
       if (value.length >= MAX_PLACEABLE_LENGTH) {
         throw new L10nError('Too many characters in placeable (' + value.length + ', max allowed is ' + MAX_PLACEABLE_LENGTH + ')');
       }
-      return [newLocals, FSI + value + PDI];
+      return [newLocals, value];
     }
 
-    return [{}, FSI + '{{ ' + id + ' }}' + PDI];
+    return [{}, '{{ ' + id + ' }}'];
   }
 
   function interpolate(locals, ctx, lang, args, arr) {

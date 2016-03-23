@@ -65,7 +65,7 @@ const io = {
   },
 };
 
-function fetchResource$1(res, { code, src, ver }) {
+function fetchResource(res, { code, src, ver }) {
   const url = res.replace('{locale}', code);
   const type = res.endsWith('.json') ? 'json' : 'text';
   return io[src](code, ver, url, type);
@@ -73,10 +73,6 @@ function fetchResource$1(res, { code, src, ver }) {
 
 const KNOWN_MACROS = ['plural'];
 const MAX_PLACEABLE_LENGTH = 2500;
-
-// Unicode bidi isolation characters
-const FSI = '\u2068';
-const PDI = '\u2069';
 
 const resolutionChain = new WeakSet();
 
@@ -139,7 +135,7 @@ function subPlaceable(locals, ctx, lang, args, id) {
   try {
     [newLocals, value] = resolveIdentifier(ctx, lang, args, id);
   } catch (err) {
-    return [{ error: err }, FSI + '{{ ' + id + ' }}' + PDI];
+    return [{ error: err }, '{{ ' + id + ' }}'];
   }
 
   if (typeof value === 'number') {
@@ -154,10 +150,10 @@ function subPlaceable(locals, ctx, lang, args, id) {
                           value.length + ', max allowed is ' +
                           MAX_PLACEABLE_LENGTH + ')');
     }
-    return [newLocals, FSI + value + PDI];
+    return [newLocals, value];
   }
 
-  return [{}, FSI + '{{ ' + id + ' }}' + PDI];
+  return [{}, '{{ ' + id + ' }}'];
 }
 
 function interpolate(locals, ctx, lang, args, arr) {
@@ -1780,7 +1776,7 @@ function removeEventListener(listeners, type, listener) {
   typeListeners.splice(pos, 1);
 }
 
-class Env$1 {
+class Env {
   constructor(fetchResource) {
     this.fetchResource = fetchResource;
 
@@ -1884,5 +1880,5 @@ function amendError(lang, err) {
   return err;
 }
 
-exports.fetchResource = fetchResource$1;
-exports.Env = Env$1;
+exports.fetchResource = fetchResource;
+exports.Env = Env;

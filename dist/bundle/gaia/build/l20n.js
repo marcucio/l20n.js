@@ -32,7 +32,7 @@ function walkEntry(entry, fn) {
   const newEntry = Object.create(null);
 
   if (entry.value) {
-    newEntry.value = walkValue$1(entry.value, fn);
+    newEntry.value = walkValue(entry.value, fn);
   }
 
   if (entry.index) {
@@ -49,7 +49,7 @@ function walkEntry(entry, fn) {
   return newEntry;
 }
 
-function walkValue$1(value, fn) {
+function walkValue(value, fn) {
   if (typeof value === 'string') {
     return fn(value);
   }
@@ -63,7 +63,7 @@ function walkValue$1(value, fn) {
   const keys = Object.keys(value);
 
   for (let i = 0, key; (key = keys[i]); i++) {
-    newValue[key] = walkValue$1(value[key], fn);
+    newValue[key] = walkValue(value[key], fn);
   }
 
   return newValue;
@@ -168,7 +168,7 @@ function createGetter(id, name) {
   };
 }
 
-const pseudo$1 = Object.defineProperties(Object.create(null), {
+const pseudo = Object.defineProperties(Object.create(null), {
   'fr-x-psaccent': {
     enumerable: true,
     get: createGetter('fr-x-psaccent', 'Runtime Accented')
@@ -179,41 +179,37 @@ const pseudo$1 = Object.defineProperties(Object.create(null), {
   }
 });
 
-const KNOWN_MACROS$1 = ['plural'];
-const MAX_PLACEABLE_LENGTH$1 = 2500;
+const KNOWN_MACROS = ['plural'];
+const MAX_PLACEABLE_LENGTH = 2500;
 
-// Unicode bidi isolation characters
-const FSI$1 = '\u2068';
-const PDI$1 = '\u2069';
+const resolutionChain = new WeakSet();
 
-const resolutionChain$1 = new WeakSet();
-
-function format$1(ctx, lang, args, entity) {
+function format(ctx, lang, args, entity) {
   if (typeof entity === 'string') {
     return [{}, entity];
   }
 
-  if (resolutionChain$1.has(entity)) {
+  if (resolutionChain.has(entity)) {
     throw new L10nError('Cyclic reference detected');
   }
 
-  resolutionChain$1.add(entity);
+  resolutionChain.add(entity);
 
   let rv;
   // if format fails, we want the exception to bubble up and stop the whole
   // resolving process;  however, we still need to remove the entity from the
   // resolution chain
   try {
-    rv = resolveValue$1(
+    rv = resolveValue(
       {}, ctx, lang, args, entity.value, entity.index);
   } finally {
-    resolutionChain$1.delete(entity);
+    resolutionChain.delete(entity);
   }
   return rv;
 }
 
-function resolveIdentifier$1(ctx, lang, args, id) {
-  if (KNOWN_MACROS$1.indexOf(id) > -1) {
+function resolveIdentifier(ctx, lang, args, id) {
+  if (KNOWN_MACROS.indexOf(id) > -1) {
     return [{}, ctx._getMacro(lang, id)];
   }
 
@@ -235,19 +231,19 @@ function resolveIdentifier$1(ctx, lang, args, id) {
   const entity = ctx._getEntity(lang, id);
 
   if (entity) {
-    return format$1(ctx, lang, args, entity);
+    return format(ctx, lang, args, entity);
   }
 
   throw new L10nError('Unknown reference: ' + id);
 }
 
-function subPlaceable$1(locals, ctx, lang, args, id) {
+function subPlaceable(locals, ctx, lang, args, id) {
   let newLocals, value;
 
   try {
-    [newLocals, value] = resolveIdentifier$1(ctx, lang, args, id);
+    [newLocals, value] = resolveIdentifier(ctx, lang, args, id);
   } catch (err) {
-    return [{ error: err }, FSI$1 + '{{ ' + id + ' }}' + PDI$1];
+    return [{ error: err }, '{{ ' + id + ' }}'];
   }
 
   if (typeof value === 'number') {
@@ -257,30 +253,30 @@ function subPlaceable$1(locals, ctx, lang, args, id) {
 
   if (typeof value === 'string') {
     // prevent Billion Laughs attacks
-    if (value.length >= MAX_PLACEABLE_LENGTH$1) {
+    if (value.length >= MAX_PLACEABLE_LENGTH) {
       throw new L10nError('Too many characters in placeable (' +
                           value.length + ', max allowed is ' +
-                          MAX_PLACEABLE_LENGTH$1 + ')');
+                          MAX_PLACEABLE_LENGTH + ')');
     }
-    return [newLocals, FSI$1 + value + PDI$1];
+    return [newLocals, value];
   }
 
-  return [{}, FSI$1 + '{{ ' + id + ' }}' + PDI$1];
+  return [{}, '{{ ' + id + ' }}'];
 }
 
-function interpolate$1(locals, ctx, lang, args, arr) {
+function interpolate(locals, ctx, lang, args, arr) {
   return arr.reduce(function([localsSeq, valueSeq], cur) {
     if (typeof cur === 'string') {
       return [localsSeq, valueSeq + cur];
     } else {
-      const [, value] = subPlaceable$1(locals, ctx, lang, args, cur.name);
+      const [, value] = subPlaceable(locals, ctx, lang, args, cur.name);
       // wrap the substitution in bidi isolate characters
       return [localsSeq, valueSeq + value];
     }
   }, [locals, '']);
 }
 
-function resolveSelector$1(ctx, lang, args, expr, index) {
+function resolveSelector(ctx, lang, args, expr, index) {
   //XXX: Dehardcode!!!
   let selectorName;
   if (index[0].type === 'call' && index[0].expr.type === 'prop' &&
@@ -289,7 +285,7 @@ function resolveSelector$1(ctx, lang, args, expr, index) {
   } else {
     selectorName = index[0].name;
   }
-  const selector = resolveIdentifier$1(ctx, lang, args, selectorName)[1];
+  const selector = resolveIdentifier(ctx, lang, args, selectorName)[1];
 
   if (typeof selector !== 'function') {
     // selector is a simple reference to an entity or args
@@ -297,7 +293,7 @@ function resolveSelector$1(ctx, lang, args, expr, index) {
   }
 
   const argValue = index[0].args ?
-    resolveIdentifier$1(ctx, lang, args, index[0].args[0].name)[1] : undefined;
+    resolveIdentifier(ctx, lang, args, index[0].args[0].name)[1] : undefined;
 
   if (selectorName === 'plural') {
     // special cases for zero, one, two if they are defined on the hash
@@ -315,7 +311,7 @@ function resolveSelector$1(ctx, lang, args, expr, index) {
   return selector(argValue);
 }
 
-function resolveValue$1(locals, ctx, lang, args, expr, index) {
+function resolveValue(locals, ctx, lang, args, expr, index) {
   if (!expr) {
     return [locals, expr];
   }
@@ -327,15 +323,15 @@ function resolveValue$1(locals, ctx, lang, args, expr, index) {
   }
 
   if (Array.isArray(expr)) {
-    return interpolate$1(locals, ctx, lang, args, expr);
+    return interpolate(locals, ctx, lang, args, expr);
   }
 
   // otherwise, it's a dict
   if (index) {
     // try to use the index in order to select the right dict member
-    const selector = resolveSelector$1(ctx, lang, args, expr, index);
+    const selector = resolveSelector(ctx, lang, args, expr, index);
     if (selector in expr) {
-      return resolveValue$1(locals, ctx, lang, args, expr[selector]);
+      return resolveValue(locals, ctx, lang, args, expr[selector]);
     }
   }
 
@@ -343,7 +339,7 @@ function resolveValue$1(locals, ctx, lang, args, expr, index) {
   // XXX 'other' is an artifact from Gaia
   const defaultKey = expr.__default || 'other';
   if (defaultKey in expr) {
-    return resolveValue$1(locals, ctx, lang, args, expr[defaultKey]);
+    return resolveValue(locals, ctx, lang, args, expr[defaultKey]);
   }
 
   throw new L10nError('Unresolvable value');
@@ -823,7 +819,7 @@ class Context {
 
   _formatTuple(lang, args, entity, id, key) {
     try {
-      return format$1(this, lang, args, entity);
+      return format(this, lang, args, entity);
     } catch (err) {
       err.id = key ? id + '::' + key : id;
       err.lang = lang;
@@ -1792,7 +1788,7 @@ class Env {
     const pseudoentries = Object.create(null);
     for (let key in entries) {
       pseudoentries[key] = walkEntry(
-        entries[key], pseudo$1[lang.code].process);
+        entries[key], pseudo[lang.code].process);
     }
     return pseudoentries;
   }
@@ -1836,8 +1832,8 @@ function amendError$1(lang, err) {
   return err;
 }
 
-const KNOWN_MACROS = ['plural'];
-const MAX_PLACEABLE_LENGTH = 2500;
+const KNOWN_MACROS$1 = ['plural'];
+const MAX_PLACEABLE_LENGTH$1 = 2500;
 
 // Matches characters outside of the Latin-1 character set
 const nonLatin1 = /[^\x01-\xFF]/;
@@ -1846,7 +1842,7 @@ const nonLatin1 = /[^\x01-\xFF]/;
 const FSI = '\u2068';
 const PDI = '\u2069';
 
-const resolutionChain = new WeakSet();
+const resolutionChain$1 = new WeakSet();
 
 function createEntry(node) {
   const keys = Object.keys(node);
@@ -1889,32 +1885,32 @@ function createAttribute(node) {
 }
 
 
-function format(ctx, lang, args, entity) {
+function format$1(ctx, lang, args, entity) {
   if (typeof entity === 'string') {
     return [{}, entity];
   }
 
-  if (resolutionChain.has(entity)) {
+  if (resolutionChain$1.has(entity)) {
     throw new L10nError('Cyclic reference detected');
   }
 
-  resolutionChain.add(entity);
+  resolutionChain$1.add(entity);
 
   let rv;
   // if format fails, we want the exception to bubble up and stop the whole
   // resolving process;  however, we still need to remove the entity from the
   // resolution chain
   try {
-    rv = resolveValue(
+    rv = resolveValue$1(
       {}, ctx, lang, args, entity.value, entity.index);
   } finally {
-    resolutionChain.delete(entity);
+    resolutionChain$1.delete(entity);
   }
   return rv;
 }
 
-function resolveIdentifier(ctx, lang, args, id) {
-  if (KNOWN_MACROS.indexOf(id) > -1) {
+function resolveIdentifier$1(ctx, lang, args, id) {
+  if (KNOWN_MACROS$1.indexOf(id) > -1) {
     return [{}, ctx._getMacro(lang, id)];
   }
 
@@ -1936,17 +1932,17 @@ function resolveIdentifier(ctx, lang, args, id) {
   const entity = ctx._getEntity(lang, id);
 
   if (entity) {
-    return format(ctx, lang, args, entity);
+    return format$1(ctx, lang, args, entity);
   }
 
   throw new L10nError('Unknown reference: ' + id);
 }
 
-function subPlaceable(locals, ctx, lang, args, id) {
+function subPlaceable$1(locals, ctx, lang, args, id) {
   let res;
 
   try {
-    res = resolveIdentifier(ctx, lang, args, id);
+    res = resolveIdentifier$1(ctx, lang, args, id);
   } catch (err) {
     return [{ error: err }, '{{ ' + id + ' }}'];
   }
@@ -1959,10 +1955,10 @@ function subPlaceable(locals, ctx, lang, args, id) {
 
   if (typeof value === 'string') {
     // prevent Billion Laughs attacks
-    if (value.length >= MAX_PLACEABLE_LENGTH) {
+    if (value.length >= MAX_PLACEABLE_LENGTH$1) {
       throw new L10nError('Too many characters in placeable (' +
                           value.length + ', max allowed is ' +
-                          MAX_PLACEABLE_LENGTH + ')');
+                          MAX_PLACEABLE_LENGTH$1 + ')');
     }
 
     if (locals.contextIsNonLatin1 || value.match(nonLatin1)) {
@@ -1978,20 +1974,20 @@ function subPlaceable(locals, ctx, lang, args, id) {
   return [{}, '{{ ' + id + ' }}'];
 }
 
-function interpolate(locals, ctx, lang, args, arr) {
+function interpolate$1(locals, ctx, lang, args, arr) {
   return arr.reduce(function([localsSeq, valueSeq], cur) {
     if (typeof cur === 'string') {
       return [localsSeq, valueSeq + cur];
     } else if (cur.t === 'idOrVar'){
-      const [, value] = subPlaceable(locals, ctx, lang, args, cur.v);
+      const [, value] = subPlaceable$1(locals, ctx, lang, args, cur.v);
       return [localsSeq, valueSeq + value];
     }
   }, [locals, '']);
 }
 
-function resolveSelector(ctx, lang, args, expr, index) {
+function resolveSelector$1(ctx, lang, args, expr, index) {
     const selectorName = index[0].v;
-    const selector = resolveIdentifier(ctx, lang, args, selectorName)[1];
+    const selector = resolveIdentifier$1(ctx, lang, args, selectorName)[1];
 
     if (typeof selector !== 'function') {
       // selector is a simple reference to an entity or args
@@ -1999,7 +1995,7 @@ function resolveSelector(ctx, lang, args, expr, index) {
     }
 
     const argValue = index[1] ?
-      resolveIdentifier(ctx, lang, args, index[1])[1] : undefined;
+      resolveIdentifier$1(ctx, lang, args, index[1])[1] : undefined;
 
     if (selectorName === 'plural') {
       // special cases for zero, one, two if they are defined on the hash
@@ -2017,7 +2013,7 @@ function resolveSelector(ctx, lang, args, expr, index) {
     return selector(argValue);
 }
 
-function resolveValue(locals, ctx, lang, args, expr, index) {
+function resolveValue$1(locals, ctx, lang, args, expr, index) {
   if (!expr) {
     return [locals, expr];
   }
@@ -2032,21 +2028,21 @@ function resolveValue(locals, ctx, lang, args, expr, index) {
     locals.contextIsNonLatin1 = expr.some(function($_) {
       return typeof($_) === 'string' && $_.match(nonLatin1);
     });
-    return interpolate(locals, ctx, lang, args, expr);
+    return interpolate$1(locals, ctx, lang, args, expr);
   }
 
   // otherwise, it's a dict
   if (index) {
     // try to use the index in order to select the right dict member
-    const selector = resolveSelector(ctx, lang, args, expr, index);
+    const selector = resolveSelector$1(ctx, lang, args, expr, index);
     if (expr.hasOwnProperty(selector)) {
-      return resolveValue(locals, ctx, lang, args, expr[selector]);
+      return resolveValue$1(locals, ctx, lang, args, expr[selector]);
     }
   }
 
   // if there was no index or no selector was found, try 'other'
   if ('other' in expr) {
-    return resolveValue(locals, ctx, lang, args, expr.other);
+    return resolveValue$1(locals, ctx, lang, args, expr.other);
   }
 
   throw new L10nError('Unresolvable value');
@@ -2060,7 +2056,7 @@ LegacyContext.prototype = Object.create(Context.prototype);
 
 LegacyContext.prototype._formatTuple = function(lang, args, entity, id, key) {
   try {
-    return format(this, lang, args, entity);
+    return format$1(this, lang, args, entity);
   } catch (err) {
     err.id = key ? id + '::' + key : id;
     err.lang = lang;
@@ -2322,7 +2318,7 @@ LegacyEnv.prototype._create = function(lang, ast) {
 };
 
 function createPseudoEntry(node, lang) {
-  return createEntry(walkContent(node, pseudo$1[lang.code].process));
+  return createEntry(walkContent(node, pseudo[lang.code].process));
 }
 
 const observerConfig = {
@@ -2863,7 +2859,7 @@ class View {
 
   serializeResources(code) {
     const langCtx = this.env.createContext(
-      [{ code, src: code in pseudo$1 ? 'pseudo' : 'app' }], this.resLinks);
+      [{ code, src: code in pseudo ? 'pseudo' : 'app' }], this.resLinks);
 
     return Promise.all(
       [this.sourceCtx, langCtx].map(ctx => ctx.fetch())
@@ -2930,5 +2926,5 @@ function getView(htmloptimizer) {
 }
 
 exports.getView = getView;
-exports.pseudo = pseudo$1;
-exports.walkValue = walkValue$1;
+exports.pseudo = pseudo;
+exports.walkValue = walkValue;

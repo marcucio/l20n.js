@@ -5,6 +5,77 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
 (function () {
   'use strict';
 
+  function L10nError(message, id, lang) {
+    this.name = 'L10nError';
+    this.message = message;
+    this.id = id;
+    this.lang = lang;
+  }
+  L10nError.prototype = Object.create(Error.prototype);
+  L10nError.prototype.constructor = L10nError;
+
+  function load(type, url) {
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+
+      if (xhr.overrideMimeType) {
+        xhr.overrideMimeType(type);
+      }
+
+      xhr.open('GET', url, true);
+
+      if (type === 'application/json') {
+        xhr.responseType = 'json';
+      }
+
+      xhr.addEventListener('load', function io_onload(e) {
+        if (e.target.status === 200 || e.target.status === 0) {
+          resolve(e.target.response || e.target.responseText);
+        } else {
+          reject(new L10nError('Not found: ' + url));
+        }
+      });
+      xhr.addEventListener('error', reject);
+      xhr.addEventListener('timeout', reject);
+
+      try {
+        xhr.send(null);
+      } catch (e) {
+        if (e.name === 'NS_ERROR_FILE_NOT_FOUND') {
+          reject(new L10nError('Not found: ' + url));
+        } else {
+          throw e;
+        }
+      }
+    });
+  }
+
+  var io = {
+    extra: function (code, ver, path, type) {
+      return navigator.mozApps.getLocalizationResource(code, ver, path, type);
+    },
+    app: function (code, ver, path, type) {
+      switch (type) {
+        case 'text':
+          return load('text/plain', path);
+        case 'json':
+          return load('application/json', path);
+        default:
+          throw new L10nError('Unknown file type: ' + type);
+      }
+    }
+  };
+
+  function fetchResource(res, _ref4) {
+    var code = _ref4.code;
+    var src = _ref4.src;
+    var ver = _ref4.ver;
+
+    var url = res.replace('{locale}', code);
+    var type = res.endsWith('.json') ? 'json' : 'text';
+    return io[src](code, ver, url, type);
+  }
+
   function emit(listeners) {
     var _this = this;
 
@@ -87,82 +158,8 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
     });
   }
 
-  function L10nError(message, id, lang) {
-    this.name = 'L10nError';
-    this.message = message;
-    this.id = id;
-    this.lang = lang;
-  }
-  L10nError.prototype = Object.create(Error.prototype);
-  L10nError.prototype.constructor = L10nError;
-
-  function load(type, url) {
-    return new Promise(function (resolve, reject) {
-      var xhr = new XMLHttpRequest();
-
-      if (xhr.overrideMimeType) {
-        xhr.overrideMimeType(type);
-      }
-
-      xhr.open('GET', url, true);
-
-      if (type === 'application/json') {
-        xhr.responseType = 'json';
-      }
-
-      xhr.addEventListener('load', function io_onload(e) {
-        if (e.target.status === 200 || e.target.status === 0) {
-          resolve(e.target.response || e.target.responseText);
-        } else {
-          reject(new L10nError('Not found: ' + url));
-        }
-      });
-      xhr.addEventListener('error', reject);
-      xhr.addEventListener('timeout', reject);
-
-      try {
-        xhr.send(null);
-      } catch (e) {
-        if (e.name === 'NS_ERROR_FILE_NOT_FOUND') {
-          reject(new L10nError('Not found: ' + url));
-        } else {
-          throw e;
-        }
-      }
-    });
-  }
-
-  var io = {
-    extra: function (code, ver, path, type) {
-      return navigator.mozApps.getLocalizationResource(code, ver, path, type);
-    },
-    app: function (code, ver, path, type) {
-      switch (type) {
-        case 'text':
-          return load('text/plain', path);
-        case 'json':
-          return load('application/json', path);
-        default:
-          throw new L10nError('Unknown file type: ' + type);
-      }
-    }
-  };
-
-  function fetchResource(res, _ref4) {
-    var code = _ref4.code;
-    var src = _ref4.src;
-    var ver = _ref4.ver;
-
-    var url = res.replace('{locale}', code);
-    var type = res.endsWith('.json') ? 'json' : 'text';
-    return io[src](code, ver, url, type);
-  }
-
   var KNOWN_MACROS = ['plural'];
   var MAX_PLACEABLE_LENGTH = 2500;
-
-  var FSI = '⁨';
-  var PDI = '⁩';
 
   var resolutionChain = new WeakSet();
 
@@ -223,7 +220,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
       newLocals = _resolveIdentifier[0];
       value = _resolveIdentifier[1];
     } catch (err) {
-      return [{ error: err }, FSI + '{{ ' + id + ' }}' + PDI];
+      return [{ error: err }, '{{ ' + id + ' }}'];
     }
 
     if (typeof value === 'number') {
@@ -235,10 +232,10 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
       if (value.length >= MAX_PLACEABLE_LENGTH) {
         throw new L10nError('Too many characters in placeable (' + value.length + ', max allowed is ' + MAX_PLACEABLE_LENGTH + ')');
       }
-      return [newLocals, FSI + value + PDI];
+      return [newLocals, value];
     }
 
-    return [{}, FSI + '{{ ' + id + ' }}' + PDI];
+    return [{}, '{{ ' + id + ' }}'];
   }
 
   function interpolate(locals, ctx, lang, args, arr) {
@@ -2043,60 +2040,105 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
     return Remote;
   })();
 
-  var observerConfig = {
-    attributes: true,
-    characterData: false,
-    childList: true,
-    subtree: true,
-    attributeFilter: ['data-l10n-id', 'data-l10n-args']
-  };
+  if (typeof NodeList === 'function' && !NodeList.prototype[Symbol.iterator]) {
+    NodeList.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
+  }
 
-  var observers = new WeakMap();
+  function documentReady() {
+    if (document.readyState !== 'loading') {
+      return Promise.resolve();
+    }
 
-  function initMutationObserver(view) {
-    observers.set(view, {
-      roots: new Set(),
-      observer: new MutationObserver(function (mutations) {
-        return translateMutations(view, mutations);
-      })
+    return new Promise(function (resolve) {
+      document.addEventListener('readystatechange', function onrsc() {
+        document.removeEventListener('readystatechange', onrsc);
+        resolve();
+      });
     });
   }
 
-  function translateRoots(view) {
-    return Promise.all([].concat(observers.get(view).roots).map(function (root) {
-      return _translateFragment(view, root);
-    }));
+  function getDirection(code) {
+    var tag = code.split('-')[0];
+    return ['ar', 'he', 'fa', 'ps', 'ur'].indexOf(tag) >= 0 ? 'rtl' : 'ltr';
   }
 
-  function observe(view, root) {
-    var obs = observers.get(view);
-    if (obs) {
-      obs.roots.add(root);
-      obs.observer.observe(root, observerConfig);
-    }
+  if (navigator.languages === undefined) {
+    navigator.languages = [navigator.language];
   }
 
-  function disconnect(view, root, allRoots) {
-    var obs = observers.get(view);
-    if (obs) {
-      obs.observer.disconnect();
-      if (allRoots) {
-        return;
+  function getResourceLinks(head) {
+    return Array.prototype.map.call(head.querySelectorAll('link[rel="localization"]'), function (el) {
+      return el.getAttribute('href');
+    });
+  }
+
+  function getMeta(head) {
+    var availableLangs = Object.create(null);
+    var defaultLang = null;
+    var appVersion = null;
+
+    var metas = Array.from(head.querySelectorAll('meta[name="availableLanguages"],' + 'meta[name="defaultLanguage"],' + 'meta[name="appVersion"]'));
+    for (var _iterator = metas, _isArray = Array.isArray(_iterator), _i = 0, _iterator = _isArray ? _iterator : _iterator[Symbol.iterator]();;) {
+      var _ref;
+
+      if (_isArray) {
+        if (_i >= _iterator.length) break;
+        _ref = _iterator[_i++];
+      } else {
+        _i = _iterator.next();
+        if (_i.done) break;
+        _ref = _i.value;
       }
-      obs.roots.delete(root);
-      obs.roots.forEach(function (other) {
-        return obs.observer.observe(other, observerConfig);
-      });
+
+      var meta = _ref;
+
+      var _name = meta.getAttribute('name');
+      var content = meta.getAttribute('content').trim();
+      switch (_name) {
+        case 'availableLanguages':
+          availableLangs = getLangRevisionMap(availableLangs, content);
+          break;
+        case 'defaultLanguage':
+          var _getLangRevisionTuple = getLangRevisionTuple(content),
+              lang = _getLangRevisionTuple[0],
+              rev = _getLangRevisionTuple[1];
+
+          defaultLang = lang;
+          if (!(lang in availableLangs)) {
+            availableLangs[lang] = rev;
+          }
+          break;
+        case 'appVersion':
+          appVersion = content;
+      }
     }
+
+    return {
+      defaultLang: defaultLang,
+      availableLangs: availableLangs,
+      appVersion: appVersion
+    };
   }
 
-  function reconnect(view) {
-    var obs = observers.get(view);
-    if (obs) {
-      obs.roots.forEach(function (root) {
-        return obs.observer.observe(root, observerConfig);
-      });
-    }
+  function getLangRevisionMap(seq, str) {
+    return str.split(',').reduce(function (seq, cur) {
+      var _getLangRevisionTuple2 = getLangRevisionTuple(cur);
+
+      var lang = _getLangRevisionTuple2[0];
+      var rev = _getLangRevisionTuple2[1];
+
+      seq[lang] = rev;
+      return seq;
+    }, seq);
+  }
+
+  function getLangRevisionTuple(str) {
+    var _str$trim$split = str.trim().split(':');
+
+    var lang = _str$trim$split[0];
+    var rev = _str$trim$split[1];
+
+    return [lang, parseInt(rev)];
   }
 
   var reOverlay = /<|&#?\w+;/;
@@ -2283,38 +2325,38 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
   function translateMutations(view, mutations) {
     var targets = new Set();
 
-    for (var _iterator = mutations, _isArray = Array.isArray(_iterator), _i = 0, _iterator = _isArray ? _iterator : _iterator[Symbol.iterator]();;) {
-      var _ref;
+    for (var _iterator2 = mutations, _isArray2 = Array.isArray(_iterator2), _i2 = 0, _iterator2 = _isArray2 ? _iterator2 : _iterator2[Symbol.iterator]();;) {
+      var _ref2;
 
-      if (_isArray) {
-        if (_i >= _iterator.length) break;
-        _ref = _iterator[_i++];
+      if (_isArray2) {
+        if (_i2 >= _iterator2.length) break;
+        _ref2 = _iterator2[_i2++];
       } else {
-        _i = _iterator.next();
-        if (_i.done) break;
-        _ref = _i.value;
+        _i2 = _iterator2.next();
+        if (_i2.done) break;
+        _ref2 = _i2.value;
       }
 
-      var mutation = _ref;
+      var mutation = _ref2;
 
       switch (mutation.type) {
         case 'attributes':
           targets.add(mutation.target);
           break;
         case 'childList':
-          for (var _iterator2 = mutation.addedNodes, _isArray2 = Array.isArray(_iterator2), _i2 = 0, _iterator2 = _isArray2 ? _iterator2 : _iterator2[Symbol.iterator]();;) {
-            var _ref2;
+          for (var _iterator3 = mutation.addedNodes, _isArray3 = Array.isArray(_iterator3), _i3 = 0, _iterator3 = _isArray3 ? _iterator3 : _iterator3[Symbol.iterator]();;) {
+            var _ref3;
 
-            if (_isArray2) {
-              if (_i2 >= _iterator2.length) break;
-              _ref2 = _iterator2[_i2++];
+            if (_isArray3) {
+              if (_i3 >= _iterator3.length) break;
+              _ref3 = _iterator3[_i3++];
             } else {
-              _i2 = _iterator2.next();
-              if (_i2.done) break;
-              _ref2 = _i2.value;
+              _i3 = _iterator3.next();
+              if (_i3.done) break;
+              _ref3 = _i3.value;
             }
 
-            var addedNode = _ref2;
+            var addedNode = _ref3;
 
             if (addedNode.nodeType === addedNode.ELEMENT_NODE) {
               if (addedNode.childElementCount) {
@@ -2367,105 +2409,60 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
     reconnect(view);
   }
 
-  if (typeof NodeList === 'function' && !NodeList.prototype[Symbol.iterator]) {
-    NodeList.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
+  var observerConfig = {
+    attributes: true,
+    characterData: false,
+    childList: true,
+    subtree: true,
+    attributeFilter: ['data-l10n-id', 'data-l10n-args']
+  };
+
+  var observers = new WeakMap();
+
+  function initMutationObserver(view) {
+    observers.set(view, {
+      roots: new Set(),
+      observer: new MutationObserver(function (mutations) {
+        return translateMutations(view, mutations);
+      })
+    });
   }
 
-  function documentReady() {
-    if (document.readyState !== 'loading') {
-      return Promise.resolve();
-    }
+  function translateRoots(view) {
+    return Promise.all([].concat(observers.get(view).roots).map(function (root) {
+      return _translateFragment(view, root);
+    }));
+  }
 
-    return new Promise(function (resolve) {
-      document.addEventListener('readystatechange', function onrsc() {
-        document.removeEventListener('readystatechange', onrsc);
-        resolve();
+  function observe(view, root) {
+    var obs = observers.get(view);
+    if (obs) {
+      obs.roots.add(root);
+      obs.observer.observe(root, observerConfig);
+    }
+  }
+
+  function disconnect(view, root, allRoots) {
+    var obs = observers.get(view);
+    if (obs) {
+      obs.observer.disconnect();
+      if (allRoots) {
+        return;
+      }
+      obs.roots.delete(root);
+      obs.roots.forEach(function (other) {
+        return obs.observer.observe(other, observerConfig);
       });
-    });
-  }
-
-  function getDirection(code) {
-    var tag = code.split('-')[0];
-    return ['ar', 'he', 'fa', 'ps', 'ur'].indexOf(tag) >= 0 ? 'rtl' : 'ltr';
-  }
-
-  if (navigator.languages === undefined) {
-    navigator.languages = [navigator.language];
-  }
-
-  function getResourceLinks(head) {
-    return Array.prototype.map.call(head.querySelectorAll('link[rel="localization"]'), function (el) {
-      return el.getAttribute('href');
-    });
-  }
-
-  function getMeta(head) {
-    var availableLangs = Object.create(null);
-    var defaultLang = null;
-    var appVersion = null;
-
-    var metas = Array.from(head.querySelectorAll('meta[name="availableLanguages"],' + 'meta[name="defaultLanguage"],' + 'meta[name="appVersion"]'));
-    for (var _iterator3 = metas, _isArray3 = Array.isArray(_iterator3), _i3 = 0, _iterator3 = _isArray3 ? _iterator3 : _iterator3[Symbol.iterator]();;) {
-      var _ref3;
-
-      if (_isArray3) {
-        if (_i3 >= _iterator3.length) break;
-        _ref3 = _iterator3[_i3++];
-      } else {
-        _i3 = _iterator3.next();
-        if (_i3.done) break;
-        _ref3 = _i3.value;
-      }
-
-      var meta = _ref3;
-
-      var _name = meta.getAttribute('name');
-      var content = meta.getAttribute('content').trim();
-      switch (_name) {
-        case 'availableLanguages':
-          availableLangs = getLangRevisionMap(availableLangs, content);
-          break;
-        case 'defaultLanguage':
-          var _getLangRevisionTuple = getLangRevisionTuple(content),
-              lang = _getLangRevisionTuple[0],
-              rev = _getLangRevisionTuple[1];
-
-          defaultLang = lang;
-          if (!(lang in availableLangs)) {
-            availableLangs[lang] = rev;
-          }
-          break;
-        case 'appVersion':
-          appVersion = content;
-      }
     }
-
-    return {
-      defaultLang: defaultLang,
-      availableLangs: availableLangs,
-      appVersion: appVersion
-    };
   }
 
-  function getLangRevisionMap(seq, str) {
-    return str.split(',').reduce(function (seq, cur) {
-      var _getLangRevisionTuple2 = getLangRevisionTuple(cur);
-
-      var lang = _getLangRevisionTuple2[0];
-      var rev = _getLangRevisionTuple2[1];
-
-      seq[lang] = rev;
-      return seq;
-    }, seq);
-  }
-
-  function getLangRevisionTuple(str) {
-    var _str$trim$split = str.trim().split(':');
-
-    var lang = _str$trim$split[0];
-    var rev = _str$trim$split[1];
-
-    return [lang, parseInt(rev)];
+  function reconnect(view) {
+    var obs = observers.get(view);
+    if (obs) {
+      obs.roots.forEach(function (root) {
+        return obs.observer.observe(root, observerConfig);
+      });
+    }
   }
 
   var viewProps = new WeakMap();

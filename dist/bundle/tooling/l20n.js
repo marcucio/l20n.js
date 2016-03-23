@@ -1,4 +1,5 @@
-(function () { 'use strict';
+(function () {
+  'use strict';
 
   function L10nError(message, id, lang) {
     this.name = 'L10nError';
@@ -122,57 +123,94 @@
       client => client.emit(type, data));
   }
 
-  const observerConfig = {
-    attributes: true,
-    characterData: false,
-    childList: true,
-    subtree: true,
-    attributeFilter: ['data-l10n-id', 'data-l10n-args']
-  };
+  // Polyfill NodeList.prototype[Symbol.iterator] for Chrome.
+  // See https://code.google.com/p/chromium/issues/detail?id=401699
+  if (typeof NodeList === 'function' && !NodeList.prototype[Symbol.iterator]) {
+    NodeList.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
+  }
 
-  const observers = new WeakMap();
+  // A document.ready shim
+  // https://github.com/whatwg/html/issues/127
+  function documentReady() {
+    if (document.readyState !== 'loading') {
+      return Promise.resolve();
+    }
 
-  function initMutationObserver(view) {
-    observers.set(view, {
-      roots: new Set(),
-      observer: new MutationObserver(
-        mutations => translateMutations(view, mutations)),
+    return new Promise(resolve => {
+      document.addEventListener('readystatechange', function onrsc() {
+        document.removeEventListener('readystatechange', onrsc);
+        resolve();
+      });
     });
   }
 
-  function translateRoots(view) {
-    return Promise.all(
-      [...observers.get(view).roots].map(
-        root => translateFragment(view, root)));
+  // Intl.Locale
+  function getDirection(code) {
+    const tag = code.split('-')[0];
+    return ['ar', 'he', 'fa', 'ps', 'ur'].indexOf(tag) >= 0 ?
+      'rtl' : 'ltr';
   }
 
-  function observe(view, root) {
-    const obs = observers.get(view);
-    if (obs) {
-      obs.roots.add(root);
-      obs.observer.observe(root, observerConfig);
-    }
+  // Opera and Safari don't support it yet
+  if (navigator.languages === undefined) {
+    navigator.languages = [navigator.language];
   }
 
-  function disconnect(view, root, allRoots) {
-    const obs = observers.get(view);
-    if (obs) {
-      obs.observer.disconnect();
-      if (allRoots) {
-        return;
+  function getResourceLinks(head) {
+    return Array.prototype.map.call(
+      head.querySelectorAll('link[rel="localization"]'),
+      el => el.getAttribute('href'));
+  }
+
+  function getMeta(head) {
+    let availableLangs = Object.create(null);
+    let defaultLang = null;
+    let appVersion = null;
+
+    // XXX take last found instead of first?
+    const metas = Array.from(head.querySelectorAll(
+      'meta[name="availableLanguages"],' +
+      'meta[name="defaultLanguage"],' +
+      'meta[name="appVersion"]'));
+    for (let meta of metas) {
+      const name = meta.getAttribute('name');
+      const content = meta.getAttribute('content').trim();
+      switch (name) {
+        case 'availableLanguages':
+          availableLangs = getLangRevisionMap(
+            availableLangs, content);
+          break;
+        case 'defaultLanguage':
+          const [lang, rev] = getLangRevisionTuple(content);
+          defaultLang = lang;
+          if (!(lang in availableLangs)) {
+            availableLangs[lang] = rev;
+          }
+          break;
+        case 'appVersion':
+          appVersion = content;
       }
-      obs.roots.delete(root);
-      obs.roots.forEach(
-        other => obs.observer.observe(other, observerConfig));
     }
+
+    return {
+      defaultLang,
+      availableLangs,
+      appVersion
+    };
   }
 
-  function reconnect(view) {
-    const obs = observers.get(view);
-    if (obs) {
-      obs.roots.forEach(
-        root => obs.observer.observe(root, observerConfig));
-    }
+  function getLangRevisionMap(seq, str) {
+    return str.split(',').reduce((seq, cur) => {
+      const [lang, rev] = getLangRevisionTuple(cur);
+      seq[lang] = rev;
+      return seq;
+    }, seq);
+  }
+
+  function getLangRevisionTuple(str) {
+    const [lang, rev]  = str.trim().split(':');
+    // if revision is missing, use NaN
+    return [lang, parseInt(rev)];
   }
 
   // match the opening angle bracket (<) in HTML tags, and HTML entities like
@@ -461,94 +499,57 @@
     reconnect(view);
   }
 
-  // Polyfill NodeList.prototype[Symbol.iterator] for Chrome.
-  // See https://code.google.com/p/chromium/issues/detail?id=401699
-  if (typeof NodeList === 'function' && !NodeList.prototype[Symbol.iterator]) {
-    NodeList.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
-  }
+  const observerConfig = {
+    attributes: true,
+    characterData: false,
+    childList: true,
+    subtree: true,
+    attributeFilter: ['data-l10n-id', 'data-l10n-args']
+  };
 
-  // A document.ready shim
-  // https://github.com/whatwg/html/issues/127
-  function documentReady() {
-    if (document.readyState !== 'loading') {
-      return Promise.resolve();
-    }
+  const observers = new WeakMap();
 
-    return new Promise(resolve => {
-      document.addEventListener('readystatechange', function onrsc() {
-        document.removeEventListener('readystatechange', onrsc);
-        resolve();
-      });
+  function initMutationObserver(view) {
+    observers.set(view, {
+      roots: new Set(),
+      observer: new MutationObserver(
+        mutations => translateMutations(view, mutations)),
     });
   }
 
-  // Intl.Locale
-  function getDirection(code) {
-    const tag = code.split('-')[0];
-    return ['ar', 'he', 'fa', 'ps', 'ur'].indexOf(tag) >= 0 ?
-      'rtl' : 'ltr';
+  function translateRoots(view) {
+    return Promise.all(
+      [...observers.get(view).roots].map(
+        root => translateFragment(view, root)));
   }
 
-  // Opera and Safari don't support it yet
-  if (navigator.languages === undefined) {
-    navigator.languages = [navigator.language];
-  }
-
-  function getResourceLinks(head) {
-    return Array.prototype.map.call(
-      head.querySelectorAll('link[rel="localization"]'),
-      el => el.getAttribute('href'));
-  }
-
-  function getMeta(head) {
-    let availableLangs = Object.create(null);
-    let defaultLang = null;
-    let appVersion = null;
-
-    // XXX take last found instead of first?
-    const metas = Array.from(head.querySelectorAll(
-      'meta[name="availableLanguages"],' +
-      'meta[name="defaultLanguage"],' +
-      'meta[name="appVersion"]'));
-    for (let meta of metas) {
-      const name = meta.getAttribute('name');
-      const content = meta.getAttribute('content').trim();
-      switch (name) {
-        case 'availableLanguages':
-          availableLangs = getLangRevisionMap(
-            availableLangs, content);
-          break;
-        case 'defaultLanguage':
-          const [lang, rev] = getLangRevisionTuple(content);
-          defaultLang = lang;
-          if (!(lang in availableLangs)) {
-            availableLangs[lang] = rev;
-          }
-          break;
-        case 'appVersion':
-          appVersion = content;
-      }
+  function observe(view, root) {
+    const obs = observers.get(view);
+    if (obs) {
+      obs.roots.add(root);
+      obs.observer.observe(root, observerConfig);
     }
-
-    return {
-      defaultLang,
-      availableLangs,
-      appVersion
-    };
   }
 
-  function getLangRevisionMap(seq, str) {
-    return str.split(',').reduce((seq, cur) => {
-      const [lang, rev] = getLangRevisionTuple(cur);
-      seq[lang] = rev;
-      return seq;
-    }, seq);
+  function disconnect(view, root, allRoots) {
+    const obs = observers.get(view);
+    if (obs) {
+      obs.observer.disconnect();
+      if (allRoots) {
+        return;
+      }
+      obs.roots.delete(root);
+      obs.roots.forEach(
+        other => obs.observer.observe(other, observerConfig));
+    }
   }
 
-  function getLangRevisionTuple(str) {
-    const [lang, rev]  = str.trim().split(':');
-    // if revision is missing, use NaN
-    return [lang, parseInt(rev)];
+  function reconnect(view) {
+    const obs = observers.get(view);
+    if (obs) {
+      obs.roots.forEach(
+        root => obs.observer.observe(root, observerConfig));
+    }
   }
 
   const viewProps = new WeakMap();
@@ -703,10 +704,6 @@
   const KNOWN_MACROS = ['plural'];
   const MAX_PLACEABLE_LENGTH = 2500;
 
-  // Unicode bidi isolation characters
-  const FSI = '\u2068';
-  const PDI = '\u2069';
-
   const resolutionChain = new WeakSet();
 
   function format(ctx, lang, args, entity) {
@@ -768,7 +765,7 @@
     try {
       [newLocals, value] = resolveIdentifier(ctx, lang, args, id);
     } catch (err) {
-      return [{ error: err }, FSI + '{{ ' + id + ' }}' + PDI];
+      return [{ error: err }, '{{ ' + id + ' }}'];
     }
 
     if (typeof value === 'number') {
@@ -783,10 +780,10 @@
                             value.length + ', max allowed is ' +
                             MAX_PLACEABLE_LENGTH + ')');
       }
-      return [newLocals, FSI + value + PDI];
+      return [newLocals, value];
     }
 
-    return [{}, FSI + '{{ ' + id + ' }}' + PDI];
+    return [{}, '{{ ' + id + ' }}'];
   }
 
   function interpolate(locals, ctx, lang, args, arr) {
@@ -1495,7 +1492,7 @@
     return resolved;
   }
 
-  var MAX_PLACEABLES$2 = 100;
+  var MAX_PLACEABLES = 100;
 
   var PropertiesParser = {
     patterns: null,
@@ -1649,9 +1646,9 @@
       var len = chunks.length;
       var placeablesCount = (len - 1) / 2;
 
-      if (placeablesCount >= MAX_PLACEABLES$2) {
+      if (placeablesCount >= MAX_PLACEABLES) {
         throw this.error('Too many placeables (' + placeablesCount +
-                            ', max allowed is ' + MAX_PLACEABLES$2 + ')');
+                            ', max allowed is ' + MAX_PLACEABLES + ')');
       }
 
       for (var i = 0; i < chunks.length; i++) {
@@ -2748,7 +2745,7 @@
     JunkEntry,
   };
 
-  const MAX_PLACEABLES = 100;
+  const MAX_PLACEABLES$2 = 100;
 
 
   class ParseContext {
@@ -2946,9 +2943,9 @@
             break;
           case '{':
             if (this._source[this._index + 1] === '{') {
-              if (placeables > MAX_PLACEABLES - 1) {
+              if (placeables > MAX_PLACEABLES$2 - 1) {
                 throw this.error('Too many placeables, maximum allowed is ' +
-                    MAX_PLACEABLES);
+                    MAX_PLACEABLES$2);
               }
               if (buf.length) {
                 body.push(buf);
@@ -3617,4 +3614,4 @@
     pseudo, format
   };
 
-})();
+}());

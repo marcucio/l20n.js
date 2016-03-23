@@ -37,7 +37,7 @@ function walkEntry(entry, fn) {
   var newEntry = Object.create(null);
 
   if (entry.value) {
-    newEntry.value = walkValue$1(entry.value, fn);
+    newEntry.value = walkValue(entry.value, fn);
   }
 
   if (entry.index) {
@@ -54,7 +54,7 @@ function walkEntry(entry, fn) {
   return newEntry;
 }
 
-function walkValue$1(value, fn) {
+function walkValue(value, fn) {
   if (typeof value === 'string') {
     return fn(value);
   }
@@ -67,7 +67,7 @@ function walkValue$1(value, fn) {
   var keys = Object.keys(value);
 
   for (var i = 0, key = undefined; key = keys[i]; i++) {
-    newValue[key] = walkValue$1(value[key], fn);
+    newValue[key] = walkValue(value[key], fn);
   }
 
   return newValue;
@@ -140,7 +140,7 @@ function createGetter(id, name) {
   };
 }
 
-var pseudo$1 = Object.defineProperties(Object.create(null), {
+var pseudo = Object.defineProperties(Object.create(null), {
   'fr-x-psaccent': {
     enumerable: true,
     get: createGetter('fr-x-psaccent', 'Runtime Accented')
@@ -151,37 +151,34 @@ var pseudo$1 = Object.defineProperties(Object.create(null), {
   }
 });
 
-var KNOWN_MACROS$1 = ['plural'];
-var MAX_PLACEABLE_LENGTH$1 = 2500;
+var KNOWN_MACROS = ['plural'];
+var MAX_PLACEABLE_LENGTH = 2500;
 
-var FSI$1 = '⁨';
-var PDI$1 = '⁩';
+var resolutionChain = new WeakSet();
 
-var resolutionChain$1 = new WeakSet();
-
-function format$1(ctx, lang, args, entity) {
+function format(ctx, lang, args, entity) {
   if (typeof entity === 'string') {
     return [{}, entity];
   }
 
-  if (resolutionChain$1.has(entity)) {
+  if (resolutionChain.has(entity)) {
     throw new L10nError('Cyclic reference detected');
   }
 
-  resolutionChain$1.add(entity);
+  resolutionChain.add(entity);
 
   var rv = undefined;
 
   try {
-    rv = resolveValue$1({}, ctx, lang, args, entity.value, entity.index);
+    rv = resolveValue({}, ctx, lang, args, entity.value, entity.index);
   } finally {
-    resolutionChain$1.delete(entity);
+    resolutionChain.delete(entity);
   }
   return rv;
 }
 
-function resolveIdentifier$1(ctx, lang, args, id) {
-  if (KNOWN_MACROS$1.indexOf(id) > -1) {
+function resolveIdentifier(ctx, lang, args, id) {
+  if (KNOWN_MACROS.indexOf(id) > -1) {
     return [{}, ctx._getMacro(lang, id)];
   }
 
@@ -200,23 +197,23 @@ function resolveIdentifier$1(ctx, lang, args, id) {
   var entity = ctx._getEntity(lang, id);
 
   if (entity) {
-    return format$1(ctx, lang, args, entity);
+    return format(ctx, lang, args, entity);
   }
 
   throw new L10nError('Unknown reference: ' + id);
 }
 
-function subPlaceable$1(locals, ctx, lang, args, id) {
+function subPlaceable(locals, ctx, lang, args, id) {
   var newLocals = undefined,
       value = undefined;
 
   try {
-    var _resolveIdentifier$1 = resolveIdentifier$1(ctx, lang, args, id);
+    var _resolveIdentifier = resolveIdentifier(ctx, lang, args, id);
 
-    newLocals = _resolveIdentifier$1[0];
-    value = _resolveIdentifier$1[1];
+    newLocals = _resolveIdentifier[0];
+    value = _resolveIdentifier[1];
   } catch (err) {
-    return [{ error: err }, FSI$1 + '{{ ' + id + ' }}' + PDI$1];
+    return [{ error: err }, '{{ ' + id + ' }}'];
   }
 
   if (typeof value === 'number') {
@@ -225,16 +222,16 @@ function subPlaceable$1(locals, ctx, lang, args, id) {
   }
 
   if (typeof value === 'string') {
-    if (value.length >= MAX_PLACEABLE_LENGTH$1) {
-      throw new L10nError('Too many characters in placeable (' + value.length + ', max allowed is ' + MAX_PLACEABLE_LENGTH$1 + ')');
+    if (value.length >= MAX_PLACEABLE_LENGTH) {
+      throw new L10nError('Too many characters in placeable (' + value.length + ', max allowed is ' + MAX_PLACEABLE_LENGTH + ')');
     }
-    return [newLocals, FSI$1 + value + PDI$1];
+    return [newLocals, value];
   }
 
-  return [{}, FSI$1 + '{{ ' + id + ' }}' + PDI$1];
+  return [{}, '{{ ' + id + ' }}'];
 }
 
-function interpolate$1(locals, ctx, lang, args, arr) {
+function interpolate(locals, ctx, lang, args, arr) {
   return arr.reduce(function (_ref2, cur) {
     var localsSeq = _ref2[0];
     var valueSeq = _ref2[1];
@@ -242,29 +239,29 @@ function interpolate$1(locals, ctx, lang, args, arr) {
     if (typeof cur === 'string') {
       return [localsSeq, valueSeq + cur];
     } else {
-      var _subPlaceable$1 = subPlaceable$1(locals, ctx, lang, args, cur.name);
+      var _subPlaceable = subPlaceable(locals, ctx, lang, args, cur.name);
 
-      var value = _subPlaceable$1[1];
+      var value = _subPlaceable[1];
 
       return [localsSeq, valueSeq + value];
     }
   }, [locals, '']);
 }
 
-function resolveSelector$1(ctx, lang, args, expr, index) {
+function resolveSelector(ctx, lang, args, expr, index) {
   var selectorName = undefined;
   if (index[0].type === 'call' && index[0].expr.type === 'prop' && index[0].expr.expr.name === 'cldr') {
     selectorName = 'plural';
   } else {
     selectorName = index[0].name;
   }
-  var selector = resolveIdentifier$1(ctx, lang, args, selectorName)[1];
+  var selector = resolveIdentifier(ctx, lang, args, selectorName)[1];
 
   if (typeof selector !== 'function') {
     return selector;
   }
 
-  var argValue = index[0].args ? resolveIdentifier$1(ctx, lang, args, index[0].args[0].name)[1] : undefined;
+  var argValue = index[0].args ? resolveIdentifier(ctx, lang, args, index[0].args[0].name)[1] : undefined;
 
   if (selectorName === 'plural') {
     if (argValue === 0 && 'zero' in expr) {
@@ -281,7 +278,7 @@ function resolveSelector$1(ctx, lang, args, expr, index) {
   return selector(argValue);
 }
 
-function resolveValue$1(locals, ctx, lang, args, expr, index) {
+function resolveValue(locals, ctx, lang, args, expr, index) {
   if (!expr) {
     return [locals, expr];
   }
@@ -291,19 +288,19 @@ function resolveValue$1(locals, ctx, lang, args, expr, index) {
   }
 
   if (Array.isArray(expr)) {
-    return interpolate$1(locals, ctx, lang, args, expr);
+    return interpolate(locals, ctx, lang, args, expr);
   }
 
   if (index) {
-    var selector = resolveSelector$1(ctx, lang, args, expr, index);
+    var selector = resolveSelector(ctx, lang, args, expr, index);
     if (selector in expr) {
-      return resolveValue$1(locals, ctx, lang, args, expr[selector]);
+      return resolveValue(locals, ctx, lang, args, expr[selector]);
     }
   }
 
   var defaultKey = expr.__default || 'other';
   if (defaultKey in expr) {
-    return resolveValue$1(locals, ctx, lang, args, expr[defaultKey]);
+    return resolveValue(locals, ctx, lang, args, expr[defaultKey]);
   }
 
   throw new L10nError('Unresolvable value');
@@ -777,7 +774,7 @@ var Context = (function () {
 
   Context.prototype._formatTuple = function _formatTuple(lang, args, entity, id, key) {
     try {
-      return format$1(this, lang, args, entity);
+      return format(this, lang, args, entity);
     } catch (err) {
       err.id = key ? id + '::' + key : id;
       err.lang = lang;
@@ -1784,7 +1781,7 @@ var Env = (function () {
 
     var pseudoentries = Object.create(null);
     for (var key in entries) {
-      pseudoentries[key] = walkEntry(entries[key], pseudo$1[lang.code].process);
+      pseudoentries[key] = walkEntry(entries[key], pseudo[lang.code].process);
     }
     return pseudoentries;
   };
@@ -1829,15 +1826,15 @@ function amendError$1(lang, err) {
   return err;
 }
 
-var KNOWN_MACROS = ['plural'];
-var MAX_PLACEABLE_LENGTH = 2500;
+var KNOWN_MACROS$1 = ['plural'];
+var MAX_PLACEABLE_LENGTH$1 = 2500;
 
 var nonLatin1 = /[^\x01-\xFF]/;
 
 var FSI = '⁨';
 var PDI = '⁩';
 
-var resolutionChain = new WeakSet();
+var resolutionChain$1 = new WeakSet();
 
 function createEntry(node) {
   var keys = Object.keys(node);
@@ -1877,29 +1874,29 @@ function createAttribute(node) {
   };
 }
 
-function format(ctx, lang, args, entity) {
+function format$1(ctx, lang, args, entity) {
   if (typeof entity === 'string') {
     return [{}, entity];
   }
 
-  if (resolutionChain.has(entity)) {
+  if (resolutionChain$1.has(entity)) {
     throw new L10nError('Cyclic reference detected');
   }
 
-  resolutionChain.add(entity);
+  resolutionChain$1.add(entity);
 
   var rv = undefined;
 
   try {
-    rv = resolveValue({}, ctx, lang, args, entity.value, entity.index);
+    rv = resolveValue$1({}, ctx, lang, args, entity.value, entity.index);
   } finally {
-    resolutionChain.delete(entity);
+    resolutionChain$1.delete(entity);
   }
   return rv;
 }
 
-function resolveIdentifier(ctx, lang, args, id) {
-  if (KNOWN_MACROS.indexOf(id) > -1) {
+function resolveIdentifier$1(ctx, lang, args, id) {
+  if (KNOWN_MACROS$1.indexOf(id) > -1) {
     return [{}, ctx._getMacro(lang, id)];
   }
 
@@ -1918,17 +1915,17 @@ function resolveIdentifier(ctx, lang, args, id) {
   var entity = ctx._getEntity(lang, id);
 
   if (entity) {
-    return format(ctx, lang, args, entity);
+    return format$1(ctx, lang, args, entity);
   }
 
   throw new L10nError('Unknown reference: ' + id);
 }
 
-function subPlaceable(locals, ctx, lang, args, id) {
+function subPlaceable$1(locals, ctx, lang, args, id) {
   var res = undefined;
 
   try {
-    res = resolveIdentifier(ctx, lang, args, id);
+    res = resolveIdentifier$1(ctx, lang, args, id);
   } catch (err) {
     return [{ error: err }, '{{ ' + id + ' }}'];
   }
@@ -1940,8 +1937,8 @@ function subPlaceable(locals, ctx, lang, args, id) {
   }
 
   if (typeof value === 'string') {
-    if (value.length >= MAX_PLACEABLE_LENGTH) {
-      throw new L10nError('Too many characters in placeable (' + value.length + ', max allowed is ' + MAX_PLACEABLE_LENGTH + ')');
+    if (value.length >= MAX_PLACEABLE_LENGTH$1) {
+      throw new L10nError('Too many characters in placeable (' + value.length + ', max allowed is ' + MAX_PLACEABLE_LENGTH$1 + ')');
     }
 
     if (locals.contextIsNonLatin1 || value.match(nonLatin1)) {
@@ -1954,7 +1951,7 @@ function subPlaceable(locals, ctx, lang, args, id) {
   return [{}, '{{ ' + id + ' }}'];
 }
 
-function interpolate(locals, ctx, lang, args, arr) {
+function interpolate$1(locals, ctx, lang, args, arr) {
   return arr.reduce(function (_ref4, cur) {
     var localsSeq = _ref4[0];
     var valueSeq = _ref4[1];
@@ -1962,24 +1959,24 @@ function interpolate(locals, ctx, lang, args, arr) {
     if (typeof cur === 'string') {
       return [localsSeq, valueSeq + cur];
     } else if (cur.t === 'idOrVar') {
-      var _subPlaceable = subPlaceable(locals, ctx, lang, args, cur.v);
+      var _subPlaceable$1 = subPlaceable$1(locals, ctx, lang, args, cur.v);
 
-      var value = _subPlaceable[1];
+      var value = _subPlaceable$1[1];
 
       return [localsSeq, valueSeq + value];
     }
   }, [locals, '']);
 }
 
-function resolveSelector(ctx, lang, args, expr, index) {
+function resolveSelector$1(ctx, lang, args, expr, index) {
   var selectorName = index[0].v;
-  var selector = resolveIdentifier(ctx, lang, args, selectorName)[1];
+  var selector = resolveIdentifier$1(ctx, lang, args, selectorName)[1];
 
   if (typeof selector !== 'function') {
     return selector;
   }
 
-  var argValue = index[1] ? resolveIdentifier(ctx, lang, args, index[1])[1] : undefined;
+  var argValue = index[1] ? resolveIdentifier$1(ctx, lang, args, index[1])[1] : undefined;
 
   if (selectorName === 'plural') {
     if (argValue === 0 && 'zero' in expr) {
@@ -1996,7 +1993,7 @@ function resolveSelector(ctx, lang, args, expr, index) {
   return selector(argValue);
 }
 
-function resolveValue(locals, ctx, lang, args, expr, index) {
+function resolveValue$1(locals, ctx, lang, args, expr, index) {
   if (!expr) {
     return [locals, expr];
   }
@@ -2009,18 +2006,18 @@ function resolveValue(locals, ctx, lang, args, expr, index) {
     locals.contextIsNonLatin1 = expr.some(function ($_) {
       return typeof $_ === 'string' && $_.match(nonLatin1);
     });
-    return interpolate(locals, ctx, lang, args, expr);
+    return interpolate$1(locals, ctx, lang, args, expr);
   }
 
   if (index) {
-    var selector = resolveSelector(ctx, lang, args, expr, index);
+    var selector = resolveSelector$1(ctx, lang, args, expr, index);
     if (expr.hasOwnProperty(selector)) {
-      return resolveValue(locals, ctx, lang, args, expr[selector]);
+      return resolveValue$1(locals, ctx, lang, args, expr[selector]);
     }
   }
 
   if ('other' in expr) {
-    return resolveValue(locals, ctx, lang, args, expr.other);
+    return resolveValue$1(locals, ctx, lang, args, expr.other);
   }
 
   throw new L10nError('Unresolvable value');
@@ -2034,7 +2031,7 @@ LegacyContext.prototype = Object.create(Context.prototype);
 
 LegacyContext.prototype._formatTuple = function (lang, args, entity, id, key) {
   try {
-    return format(this, lang, args, entity);
+    return format$1(this, lang, args, entity);
   } catch (err) {
     err.id = key ? id + '::' + key : id;
     err.lang = lang;
@@ -2285,7 +2282,7 @@ LegacyEnv.prototype._create = function (lang, ast) {
 };
 
 function createPseudoEntry(node, lang) {
-  return createEntry(walkContent(node, pseudo$1[lang.code].process));
+  return createEntry(walkContent(node, pseudo[lang.code].process));
 }
 
 var observerConfig = {
@@ -2776,7 +2773,7 @@ var View = (function () {
   View.prototype.serializeResources = function serializeResources(code) {
     var _this13 = this;
 
-    var langCtx = this.env.createContext([{ code: code, src: code in pseudo$1 ? 'pseudo' : 'app' }], this.resLinks);
+    var langCtx = this.env.createContext([{ code: code, src: code in pseudo ? 'pseudo' : 'app' }], this.resLinks);
 
     return Promise.all([this.sourceCtx, langCtx].map(function (ctx) {
       return ctx.fetch();
@@ -2851,5 +2848,5 @@ function getView(htmloptimizer) {
 }
 
 exports.getView = getView;
-exports.pseudo = pseudo$1;
-exports.walkValue = walkValue$1;
+exports.pseudo = pseudo;
+exports.walkValue = walkValue;

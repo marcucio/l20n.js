@@ -1,55 +1,5 @@
-(function () { 'use strict';
-
-  function emit(listeners, ...args) {
-    const type = args.shift();
-
-    if (listeners['*']) {
-      listeners['*'].slice().forEach(
-        listener => listener.apply(this, args));
-    }
-
-    if (listeners[type]) {
-      listeners[type].slice().forEach(
-        listener => listener.apply(this, args));
-    }
-  }
-
-  function addEventListener(listeners, type, listener) {
-    if (!(type in listeners)) {
-      listeners[type] = [];
-    }
-    listeners[type].push(listener);
-  }
-
-  function removeEventListener(listeners, type, listener) {
-    const typeListeners = listeners[type];
-    const pos = typeListeners.indexOf(listener);
-    if (pos === -1) {
-      return;
-    }
-
-    typeListeners.splice(pos, 1);
-  }
-
-  class Client {
-    constructor(remote) {
-      this.id = this;
-      this.remote = remote;
-
-      const listeners = {};
-      this.on = (...args) => addEventListener(listeners, ...args);
-      this.emit = (...args) => emit(listeners, ...args);
-    }
-
-    method(name, ...args) {
-      return this.remote[name](...args);
-    }
-  }
-
-  function broadcast(type, data) {
-    Array.from(this.ctxs.keys()).forEach(
-      client => client.emit(type, data));
-  }
+(function () {
+  'use strict';
 
   function L10nError(message, id, lang) {
     this.name = 'L10nError';
@@ -122,12 +72,59 @@
     return io[src](code, ver, url, type);
   }
 
+  function emit(listeners, ...args) {
+    const type = args.shift();
+
+    if (listeners['*']) {
+      listeners['*'].slice().forEach(
+        listener => listener.apply(this, args));
+    }
+
+    if (listeners[type]) {
+      listeners[type].slice().forEach(
+        listener => listener.apply(this, args));
+    }
+  }
+
+  function addEventListener(listeners, type, listener) {
+    if (!(type in listeners)) {
+      listeners[type] = [];
+    }
+    listeners[type].push(listener);
+  }
+
+  function removeEventListener(listeners, type, listener) {
+    const typeListeners = listeners[type];
+    const pos = typeListeners.indexOf(listener);
+    if (pos === -1) {
+      return;
+    }
+
+    typeListeners.splice(pos, 1);
+  }
+
+  class Client {
+    constructor(remote) {
+      this.id = this;
+      this.remote = remote;
+
+      const listeners = {};
+      this.on = (...args) => addEventListener(listeners, ...args);
+      this.emit = (...args) => emit(listeners, ...args);
+    }
+
+    method(name, ...args) {
+      return this.remote[name](...args);
+    }
+  }
+
+  function broadcast(type, data) {
+    Array.from(this.ctxs.keys()).forEach(
+      client => client.emit(type, data));
+  }
+
   const KNOWN_MACROS = ['plural'];
   const MAX_PLACEABLE_LENGTH = 2500;
-
-  // Unicode bidi isolation characters
-  const FSI = '\u2068';
-  const PDI = '\u2069';
 
   const resolutionChain = new WeakSet();
 
@@ -190,7 +187,7 @@
     try {
       [newLocals, value] = resolveIdentifier(ctx, lang, args, id);
     } catch (err) {
-      return [{ error: err }, FSI + '{{ ' + id + ' }}' + PDI];
+      return [{ error: err }, '{{ ' + id + ' }}'];
     }
 
     if (typeof value === 'number') {
@@ -205,10 +202,10 @@
                             value.length + ', max allowed is ' +
                             MAX_PLACEABLE_LENGTH + ')');
       }
-      return [newLocals, FSI + value + PDI];
+      return [newLocals, value];
     }
 
-    return [{}, FSI + '{{ ' + id + ' }}' + PDI];
+    return [{}, '{{ ' + id + ' }}'];
   }
 
   function interpolate(locals, ctx, lang, args, arr) {
@@ -2022,57 +2019,94 @@
     }
   }
 
-  const observerConfig = {
-    attributes: true,
-    characterData: false,
-    childList: true,
-    subtree: true,
-    attributeFilter: ['data-l10n-id', 'data-l10n-args']
-  };
+  // Polyfill NodeList.prototype[Symbol.iterator] for Chrome.
+  // See https://code.google.com/p/chromium/issues/detail?id=401699
+  if (typeof NodeList === 'function' && !NodeList.prototype[Symbol.iterator]) {
+    NodeList.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
+  }
 
-  const observers = new WeakMap();
+  // A document.ready shim
+  // https://github.com/whatwg/html/issues/127
+  function documentReady() {
+    if (document.readyState !== 'loading') {
+      return Promise.resolve();
+    }
 
-  function initMutationObserver(view) {
-    observers.set(view, {
-      roots: new Set(),
-      observer: new MutationObserver(
-        mutations => translateMutations(view, mutations)),
+    return new Promise(resolve => {
+      document.addEventListener('readystatechange', function onrsc() {
+        document.removeEventListener('readystatechange', onrsc);
+        resolve();
+      });
     });
   }
 
-  function translateRoots(view) {
-    return Promise.all(
-      [...observers.get(view).roots].map(
-        root => translateFragment(view, root)));
+  // Intl.Locale
+  function getDirection(code) {
+    const tag = code.split('-')[0];
+    return ['ar', 'he', 'fa', 'ps', 'ur'].indexOf(tag) >= 0 ?
+      'rtl' : 'ltr';
   }
 
-  function observe(view, root) {
-    const obs = observers.get(view);
-    if (obs) {
-      obs.roots.add(root);
-      obs.observer.observe(root, observerConfig);
-    }
+  // Opera and Safari don't support it yet
+  if (navigator.languages === undefined) {
+    navigator.languages = [navigator.language];
   }
 
-  function disconnect(view, root, allRoots) {
-    const obs = observers.get(view);
-    if (obs) {
-      obs.observer.disconnect();
-      if (allRoots) {
-        return;
+  function getResourceLinks(head) {
+    return Array.prototype.map.call(
+      head.querySelectorAll('link[rel="localization"]'),
+      el => el.getAttribute('href'));
+  }
+
+  function getMeta(head) {
+    let availableLangs = Object.create(null);
+    let defaultLang = null;
+    let appVersion = null;
+
+    // XXX take last found instead of first?
+    const metas = Array.from(head.querySelectorAll(
+      'meta[name="availableLanguages"],' +
+      'meta[name="defaultLanguage"],' +
+      'meta[name="appVersion"]'));
+    for (let meta of metas) {
+      const name = meta.getAttribute('name');
+      const content = meta.getAttribute('content').trim();
+      switch (name) {
+        case 'availableLanguages':
+          availableLangs = getLangRevisionMap(
+            availableLangs, content);
+          break;
+        case 'defaultLanguage':
+          const [lang, rev] = getLangRevisionTuple(content);
+          defaultLang = lang;
+          if (!(lang in availableLangs)) {
+            availableLangs[lang] = rev;
+          }
+          break;
+        case 'appVersion':
+          appVersion = content;
       }
-      obs.roots.delete(root);
-      obs.roots.forEach(
-        other => obs.observer.observe(other, observerConfig));
     }
+
+    return {
+      defaultLang,
+      availableLangs,
+      appVersion
+    };
   }
 
-  function reconnect(view) {
-    const obs = observers.get(view);
-    if (obs) {
-      obs.roots.forEach(
-        root => obs.observer.observe(root, observerConfig));
-    }
+  function getLangRevisionMap(seq, str) {
+    return str.split(',').reduce((seq, cur) => {
+      const [lang, rev] = getLangRevisionTuple(cur);
+      seq[lang] = rev;
+      return seq;
+    }, seq);
+  }
+
+  function getLangRevisionTuple(str) {
+    const [lang, rev]  = str.trim().split(':');
+    // if revision is missing, use NaN
+    return [lang, parseInt(rev)];
   }
 
   // match the opening angle bracket (<) in HTML tags, and HTML entities like
@@ -2361,94 +2395,57 @@
     reconnect(view);
   }
 
-  // Polyfill NodeList.prototype[Symbol.iterator] for Chrome.
-  // See https://code.google.com/p/chromium/issues/detail?id=401699
-  if (typeof NodeList === 'function' && !NodeList.prototype[Symbol.iterator]) {
-    NodeList.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
-  }
+  const observerConfig = {
+    attributes: true,
+    characterData: false,
+    childList: true,
+    subtree: true,
+    attributeFilter: ['data-l10n-id', 'data-l10n-args']
+  };
 
-  // A document.ready shim
-  // https://github.com/whatwg/html/issues/127
-  function documentReady() {
-    if (document.readyState !== 'loading') {
-      return Promise.resolve();
-    }
+  const observers = new WeakMap();
 
-    return new Promise(resolve => {
-      document.addEventListener('readystatechange', function onrsc() {
-        document.removeEventListener('readystatechange', onrsc);
-        resolve();
-      });
+  function initMutationObserver(view) {
+    observers.set(view, {
+      roots: new Set(),
+      observer: new MutationObserver(
+        mutations => translateMutations(view, mutations)),
     });
   }
 
-  // Intl.Locale
-  function getDirection(code) {
-    const tag = code.split('-')[0];
-    return ['ar', 'he', 'fa', 'ps', 'ur'].indexOf(tag) >= 0 ?
-      'rtl' : 'ltr';
+  function translateRoots(view) {
+    return Promise.all(
+      [...observers.get(view).roots].map(
+        root => translateFragment(view, root)));
   }
 
-  // Opera and Safari don't support it yet
-  if (navigator.languages === undefined) {
-    navigator.languages = [navigator.language];
-  }
-
-  function getResourceLinks(head) {
-    return Array.prototype.map.call(
-      head.querySelectorAll('link[rel="localization"]'),
-      el => el.getAttribute('href'));
-  }
-
-  function getMeta(head) {
-    let availableLangs = Object.create(null);
-    let defaultLang = null;
-    let appVersion = null;
-
-    // XXX take last found instead of first?
-    const metas = Array.from(head.querySelectorAll(
-      'meta[name="availableLanguages"],' +
-      'meta[name="defaultLanguage"],' +
-      'meta[name="appVersion"]'));
-    for (let meta of metas) {
-      const name = meta.getAttribute('name');
-      const content = meta.getAttribute('content').trim();
-      switch (name) {
-        case 'availableLanguages':
-          availableLangs = getLangRevisionMap(
-            availableLangs, content);
-          break;
-        case 'defaultLanguage':
-          const [lang, rev] = getLangRevisionTuple(content);
-          defaultLang = lang;
-          if (!(lang in availableLangs)) {
-            availableLangs[lang] = rev;
-          }
-          break;
-        case 'appVersion':
-          appVersion = content;
-      }
+  function observe(view, root) {
+    const obs = observers.get(view);
+    if (obs) {
+      obs.roots.add(root);
+      obs.observer.observe(root, observerConfig);
     }
-
-    return {
-      defaultLang,
-      availableLangs,
-      appVersion
-    };
   }
 
-  function getLangRevisionMap(seq, str) {
-    return str.split(',').reduce((seq, cur) => {
-      const [lang, rev] = getLangRevisionTuple(cur);
-      seq[lang] = rev;
-      return seq;
-    }, seq);
+  function disconnect(view, root, allRoots) {
+    const obs = observers.get(view);
+    if (obs) {
+      obs.observer.disconnect();
+      if (allRoots) {
+        return;
+      }
+      obs.roots.delete(root);
+      obs.roots.forEach(
+        other => obs.observer.observe(other, observerConfig));
+    }
   }
 
-  function getLangRevisionTuple(str) {
-    const [lang, rev]  = str.trim().split(':');
-    // if revision is missing, use NaN
-    return [lang, parseInt(rev)];
+  function reconnect(view) {
+    const obs = observers.get(view);
+    if (obs) {
+      obs.roots.forEach(
+        root => obs.observer.observe(root, observerConfig));
+    }
   }
 
   const viewProps = new WeakMap();
@@ -2607,4 +2604,4 @@
   window.addEventListener('languagechange', document.l10n);
   document.addEventListener('additionallanguageschange', document.l10n);
 
-})();
+}());

@@ -5,10 +5,6 @@ import { L10nError } from './errors';
 const KNOWN_MACROS = ['plural'];
 const MAX_PLACEABLE_LENGTH = 2500;
 
-// Unicode bidi isolation characters
-const FSI = '\u2068';
-const PDI = '\u2069';
-
 const resolutionChain = new WeakSet();
 
 export function format(ctx, lang, args, entity) {
@@ -70,7 +66,7 @@ function subPlaceable(locals, ctx, lang, args, id) {
   try {
     [newLocals, value] = resolveIdentifier(ctx, lang, args, id);
   } catch (err) {
-    return [{ error: err }, FSI + '{{ ' + id + ' }}' + PDI];
+    return [{ error: err }, '{{ ' + id + ' }}'];
   }
 
   if (typeof value === 'number') {
@@ -85,10 +81,10 @@ function subPlaceable(locals, ctx, lang, args, id) {
                           value.length + ', max allowed is ' +
                           MAX_PLACEABLE_LENGTH + ')');
     }
-    return [newLocals, FSI + value + PDI];
+    return [newLocals, value];
   }
 
-  return [{}, FSI + '{{ ' + id + ' }}' + PDI];
+  return [{}, '{{ ' + id + ' }}'];
 }
 
 function interpolate(locals, ctx, lang, args, arr) {

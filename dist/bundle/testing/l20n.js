@@ -1,4 +1,5 @@
-(function () { 'use strict';
+(function () {
+  'use strict';
 
   const observerConfig = {
     attributes: true,
@@ -318,15 +319,15 @@
   }
 
 
-  var dom = {
+  var dom = Object.freeze({
     setAttributes: setAttributes,
     getAttributes: getAttributes,
     translateMutations: translateMutations,
     translateFragment: translateFragment
-  };
+  });
 
   window.L20n = {
     dom
   };
 
-})();
+}());
