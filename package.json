@@ -1,7 +1,7 @@
 {
   "name": "l20n",
   "description": "A localization library for Firefox OS",
-  "version": "4.0.0-pre",
+  "version": "3.5.0",
   "homepage": "http://l20n.org",
   "author": "Mozilla <l10n-drivers@mozilla.org>",
   "license": "Apache-2.0",
@@ -42,6 +42,7 @@
     "glob": "^5.0.14",
     "grunt": "^0.4.1",
     "grunt-babel": "^5.0.0",
+    "grunt-bump": "^0.3.1",
     "grunt-cli": "^0.1.13",
     "grunt-contrib-clean": "^0.5.0",
     "grunt-contrib-copy": "^0.8.1",
